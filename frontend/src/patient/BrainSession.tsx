@@ -161,10 +161,15 @@ export default function BrainSession() {
               </button>
             ))}
           </div>
+          <p className="mt-3 text-xs text-muted">
+            You'll rest with eyes open first, then do the activity with eyes closed. We compare your brain's
+            relaxation between the two.
+          </p>
+          <Button className="mt-3 w-full py-3" onClick={start}>Start session</Button>
         </Card>
       )}
 
-      <Card>
+      {(running || summary) && <Card>
         <div className="flex items-center justify-between text-xs">
           <span className={`rounded-full px-2 py-0.5 font-medium ${!frame ? 'bg-sand text-muted' : during ? 'bg-sage-100 text-sage-700' : 'bg-peach/40 text-ink'}`}>
             {!frame ? 'Ready' : during ? `During: ${chosen?.title.toLowerCase() ?? 'activity'}, eyes closed` : 'Before: resting, eyes open'}
@@ -188,7 +193,7 @@ export default function BrainSession() {
             <div className="h-full rounded-full bg-sage-500" style={{ width: `${(count.n / count.total) * 100}%` }} />
           </div>
         )}
-      </Card>
+      </Card>}
 
       {summary ? (
         <Card className="space-y-2">
@@ -215,9 +220,7 @@ export default function BrainSession() {
         </Card>
       ) : running ? (
         <Button variant="soft" className="w-full" onClick={stop}>Stop</Button>
-      ) : (
-        <Button className="w-full py-3" onClick={start}>Start session</Button>
-      )}
+      ) : null}
 
       <p className="text-[11px] leading-snug text-muted">
         Demo: a real public EEG research recording{source ? ` (${source})` : ''} replayed as if live at {SPEED}× speed.
