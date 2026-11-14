@@ -6,6 +6,7 @@ reasons that produced it. Nothing here is a diagnosis.
 
 from __future__ import annotations
 
+import datetime as dt
 import statistics
 
 from .signals import BASELINE_DAYS, SELF_SIGNALS, SENSOR_SIGNALS, SIGNALS
@@ -70,6 +71,14 @@ def analyse_signal(recs: list[dict], key: str) -> dict:
         "changed": changed,
         "z": zs,
     }
+
+
+def _pretty(iso: str | None) -> str:
+    """'2026-11-08' -> '8 Nov' (portable: no platform-specific strftime flags)."""
+    if not iso:
+        return "never"
+    d = dt.date.fromisoformat(iso)
+    return f"{d.day} {d.strftime('%b')}"
 
 
 def _onset(recs: list[dict], zs: list[float | None]) -> str | None:
@@ -145,7 +154,7 @@ def assess(recs: list[dict], sharing: dict | None = None) -> dict:
     elif data_days < 3:
         status = "missing"
         missing_for = sum(1 for _ in _trailing_empty(recs))
-        reasons = [f"No check-ins or sensor data for {missing_for} days (last data: {last_date or 'never'})."]
+        reasons = [f"No check-ins or sensor data for {missing_for} days (last data: {_pretty(last_date)})."]
     elif len(sensor_changed) >= 2 and ({"mood", "energy"} & set(self_changed)):
         status, reasons = "review", reasons_changed
     elif "mood" in analyses and analyses["mood"]["changed"] and (analyses["mood"]["z7"] or 0) >= MOOD_ALONE_Z7:
