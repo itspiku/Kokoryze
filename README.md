@@ -53,6 +53,9 @@ cd backend
 ```
 The AI tests use a simulated Claude client, so they run offline and cost nothing.
 
+**Click-through tests** (with both servers running): `pip install playwright`, then
+`python e2e/clickthrough.py`. It drives the real app in Microsoft Edge through 9 demo flows.
+
 ## Demo personas
 
 | Persona | Story | Dashboard status | What it shows |
