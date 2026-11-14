@@ -35,6 +35,8 @@ def _load(subject: int):
     raws = []
     for f in files:
         raw = mne.io.read_raw_edf(f, preload=True, verbose=False)
+        # The files end with a short zero-padded tail; drop the last second.
+        raw.crop(tmax=raw.times[-1] - 1.0)
         eegbci.standardize(raw)
         raw.pick([c for c in CHANNELS if c in raw.ch_names])
         # 1-40 Hz band-pass removes slow drift and mains noise (50/60 Hz) in one step
