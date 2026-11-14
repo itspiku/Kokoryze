@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
 import type { Activity as ActivityT, SuggestionResponse } from '../api'
-import { Button, CATEGORY_ICON, Card, Loading } from '../components/ui'
+import { CategoryIcon } from '../components/icons'
+import { Button, Card, Loading } from '../components/ui'
 
 type Phase = 'before' | 'doing' | 'after' | 'learned'
 
@@ -17,15 +18,20 @@ function MoodPick({ value, onChange }: { value: number | null; onChange: (v: num
   )
 }
 
-function useCountdown(seconds: number, running: boolean) {
-  const [left, setLeft] = useState(seconds)
-  useEffect(() => { setLeft(seconds) }, [seconds])
+/** Seconds left while `running`; calls onDone once when it reaches zero. */
+function useCountdown(seconds: number, running: boolean, onDone: () => void) {
+  const [elapsed, setElapsed] = useState(0)
+  const done = useRef(onDone)
+  useEffect(() => { done.current = onDone })
   useEffect(() => {
     if (!running) return
-    const id = setInterval(() => setLeft((l) => Math.max(0, l - 1)), 1000)
+    const id = setInterval(() => setElapsed((e) => {
+      if (e + 1 >= seconds) { clearInterval(id); done.current() }
+      return e + 1
+    }), 1000)
     return () => clearInterval(id)
-  }, [running])
-  return left
+  }, [running, seconds])
+  return Math.max(0, seconds - elapsed)
 }
 
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
@@ -85,7 +91,7 @@ export default function Activity() {
   const [moodAfter, setMoodAfter] = useState<number | null>(null)
   const [answer, setAnswer] = useState<'yes' | 'a_bit' | 'no' | null>(null)
   const [next, setNext] = useState<SuggestionResponse | null>(null)
-  const left = useCountdown((a?.duration_min ?? 3) * 60, phase === 'doing')
+  const left = useCountdown((a?.duration_min ?? 3) * 60, phase === 'doing', () => setPhase('after'))
 
   useEffect(() => {
     if (a) return
@@ -93,8 +99,6 @@ export default function Activity() {
       setA([s.suggestion, ...s.alternatives].find((x) => x?.id === iid) ?? null)
     })
   }, [a, pid, iid])
-
-  useEffect(() => { if (phase === 'doing' && left === 0) setPhase('after') }, [left, phase])
 
   if (!a) return <Loading />
 
@@ -111,7 +115,7 @@ export default function Activity() {
   return (
     <div className="space-y-4 p-5">
       <header className="flex items-start gap-3 pt-2">
-        <div className="text-3xl">{CATEGORY_ICON[a.category]}</div>
+        <CategoryIcon category={a.category} />
         <div>
           <h1 className="text-xl font-semibold">{a.title}</h1>
           <div className="text-xs text-muted">{a.duration_min} min · {a.category}</div>
