@@ -1,0 +1,17 @@
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# EEG recordings are downloaded on first run (PhysioNet, ~2.4 MB per subject)
+backend/data/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
