@@ -10,7 +10,8 @@ from pydantic import BaseModel, Field
 
 from . import store
 from .detection import analyse_signal, current_state, week_vs_normal
-from .learner import record_feedback, suggest
+from .interventions import BRAIN_ACTIVITIES, BY_ID, STATE_LABELS
+from .learner import record_brain_session, record_feedback, suggest
 from .safety import CRISIS_RESOURCES, check_crisis
 from .signals import SHARE_GROUPS, SIGNALS
 
@@ -141,6 +142,49 @@ def post_feedback(pid: str, body: Feedback, tod: str | None = None):
     if body.mood_after is not None:
         recs[-1]["mood"] = body.mood_after
     return {"logged": entry, **suggest(pid, store.logs(pid), state, recs[-1]["date"], tod)}
+
+
+@router.get("/brain-activities")
+def brain_activities():
+    return [{k: BY_ID[i][k] for k in ("id", "title", "category", "duration_min", "instructions")}
+            for i in BRAIN_ACTIVITIES]
+
+
+class BrainSession(BaseModel):
+    intervention_id: str
+    relax_before: float = Field(ge=0, le=100)
+    relax_during: float = Field(ge=0, le=100)
+    alpha_change_pct: float | None = None
+    quality_pct: float | None = Field(default=None, ge=0, le=100)
+
+
+@router.post("/{pid}/brain-session")
+def post_brain_session(pid: str, body: BrainSession, tod: str | None = None):
+    """Close the loop: a brain session's relaxation change becomes learner evidence."""
+    _get(pid)
+    if body.intervention_id not in BRAIN_ACTIVITIES:
+        raise HTTPException(400, "This activity can't be paired with a brain session")
+    recs = store.records(pid)
+    state = current_state(recs)
+    entry = record_brain_session(store.logs(pid), body.intervention_id, state,
+                                 body.relax_before, body.relax_during, recs[-1]["date"])
+    entry.update(alpha_change_pct=body.alpha_change_pct, quality_pct=body.quality_pct)
+    iv = BY_ID[body.intervention_id]
+    verdict = {1.0: "relaxed clearly", 0.5: "relaxed a little", 0.0: "didn't relax much"}[entry["helped"]]
+    sessions = [l for l in store.logs(pid) if l["intervention_id"] == iv["id"] and l.get("source") == "eeg"]
+    when = [STATE_LABELS[s] for s in iv["good_for"] if s != "steady"]
+    when_text = ", ".join(when[:-1]) + (" or " if len(when) > 1 else "") + when[-1] if when else "steady"
+    return {
+        "logged": entry,
+        "message": f"Your brain {verdict} during {iv['title'].lower()}.",
+        "evidence": {
+            "activity": iv["title"],
+            "brain_sessions": len(sessions),
+            "brain_relaxed": sum(1 for l in sessions if l["helped"] >= 1),
+            "used_when": f"Next time you feel {when_text}, Kokoryze will weigh this in.",
+        },
+        **suggest(pid, store.logs(pid), state, recs[-1]["date"], tod),
+    }
 
 
 @router.get("/{pid}/sharing")
