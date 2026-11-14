@@ -31,6 +31,10 @@ def _summary(p: dict) -> dict:
         "reasons": a["reasons"],
         "changed_count": len(a["changed_signals"]),
         "signals_tracked": a["signals_tracked"],
+        "changing_since": a["changing_since"],
+        # 21-day mood trend for a small sparkline (only if the patient shares check-ins)
+        "mood_trend": ([r.get("mood") for r in recs[-21:]] if p["sharing"].get("mood", True) else None),
+        "mood_usual": (a["analyses"]["mood"]["baseline"]["median"] if "mood" in a["analyses"] else None),
         "last_data_date": a["last_data_date"],
         "last_review": last_review,
         "reviewed_today": bool(last_review and last_review["date"] == _today()),
@@ -62,6 +66,7 @@ def detail(pid: str, days: int = 45):
         bl = an["baseline"]
         series.append({
             "key": key, "label": meta["label"], "unit": meta["unit"], "changed": an["changed"],
+            "onset": an["onset"],
             "baseline": None if bl["median"] is None else {
                 "median": bl["median"], "low": bl["median"] - bl["spread"], "high": bl["median"] + bl["spread"]},
             "points": [{"date": r["date"], "value": r.get(key),
@@ -74,8 +79,15 @@ def detail(pid: str, days: int = 45):
         notes = [{"date": r["date"], "text": r["notes"], "crisis": r.get("crisis", False)}
                  for r in reversed(recs) if r.get("notes")][:10]
 
+    brain = [{"date": l["date"], "title": BY_ID[l["intervention_id"]]["title"],
+              "relax_before": l["relax_before"], "relax_during": l["relax_during"],
+              "helped": l["helped"]}
+             for l in reversed(store.logs(pid)) if l.get("source") == "eeg"]
+
     history: dict[str, dict] = {}
     for l in store.logs(pid):
+        if l.get("source", "self") != "self":
+            continue
         h = history.setdefault(l["intervention_id"], {"id": l["intervention_id"],
                                                       "title": BY_ID[l["intervention_id"]]["title"],
                                                       "tried": 0, "helped": 0})
@@ -89,6 +101,7 @@ def detail(pid: str, days: int = 45):
         "series": series,
         "notes": notes,
         "interventions": hist,
+        "brain_sessions": brain,
         "reviews": list(reversed(p["reviews"])),
         "hidden_by_patient": hidden,
     }
