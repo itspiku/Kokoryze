@@ -15,11 +15,16 @@ def setup_function():
 def test_negative_feedback_lowers_belief():
     logs = store.logs("ben")
     before = suggest("ben", logs, "low_energy", "2026-01-01", "afternoon")["suggestion"]
-    for _ in range(4):
+    beliefs = [before["expected_help"]]
+    for _ in range(8):
         logs.append({"date": "2026-01-01", "intervention_id": before["id"],
                      "state": "low_energy", "helped": 0.0})
-    after = suggest("ben", logs, "low_energy", "2026-01-01", "afternoon")
-    assert after["suggestion"]["id"] != before["id"]
+        s = suggest("ben", logs, "low_energy", "2026-01-01", "afternoon")
+        same = [x for x in [s["suggestion"], *s["alternatives"]] if x["id"] == before["id"]]
+        if same:
+            beliefs.append(same[0]["expected_help"])
+    assert all(b2 < b1 for b1, b2 in zip(beliefs, beliefs[1:]))  # belief drops every time
+    assert s["suggestion"]["id"] != before["id"]                  # and eventually it switches
 
 
 def test_crisis_phrases():
