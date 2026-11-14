@@ -64,3 +64,28 @@ def test_sharing_hides_series_from_clinic():
 def test_delete_my_data():
     client.delete("/patients/ben/data")
     assert client.get("/clinic/patients/ben").json()["status"] == "missing"
+
+
+def test_brain_session_becomes_learner_evidence():
+    acts = [a["id"] for a in client.get("/patients/brain-activities").json()]
+    assert "box_breathing" in acts
+    r = client.post("/patients/anna/brain-session?tod=afternoon",
+                    json={"intervention_id": "box_breathing", "relax_before": 10, "relax_during": 85}).json()
+    assert r["logged"]["source"] == "eeg" and r["logged"]["helped"] == 1.0
+    assert r["logged"]["weight"] < 1  # a brain signal counts less than the person's own answer
+    detail = client.get("/clinic/patients/anna").json()
+    assert detail["brain_sessions"][0]["title"] == "Box breathing"
+    s = client.get("/patients/anna/suggestion?tod=afternoon").json()
+    whys = " ".join(x["why"] for x in [s["suggestion"], *s["alternatives"]])
+    assert "brain session" in whys or all(x["id"] != "box_breathing" for x in [s["suggestion"], *s["alternatives"]])
+
+
+def test_brain_session_rejects_non_calm_activity():
+    r = client.post("/patients/anna/brain-session",
+                    json={"intervention_id": "walk_outside", "relax_before": 10, "relax_during": 85})
+    assert r.status_code == 400
+
+
+def test_reaction_time_is_part_of_bens_story():
+    reasons = " ".join(client.get("/clinic/patients/ben").json()["reasons"])
+    assert "Reaction time" in reasons
