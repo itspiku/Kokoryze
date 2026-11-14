@@ -5,6 +5,7 @@ import type { Review } from '../api'
 import BaselineChart from '../components/BaselineChart'
 import { Disclaimer, ErrorBox, Loading, StatusBadge } from '../components/ui'
 import { useApi } from '../useApi'
+import { daysAgo, fmtDay } from '../dates'
 import ClinicShell from './ClinicShell'
 
 const ACTION_LABEL: Record<Review['action'], string> = {
@@ -45,6 +46,11 @@ export default function PatientDetail() {
                 </div>
                 <StatusBadge status={data.status} label={data.status_label} />
               </div>
+              {data.changing_since && (
+                <p className="mt-3 inline-block rounded-lg bg-orange-50 px-2.5 py-1 text-xs text-orange-800">
+                  Changes began around {fmtDay(data.changing_since)}, {daysAgo(data.changing_since)} days ago
+                </p>
+              )}
               <h2 className="mt-4 text-xs font-medium uppercase tracking-wide text-slate-500">Why</h2>
               <ul className="mt-1.5 list-disc space-y-1 pl-5 text-sm text-slate-800">
                 {data.reasons.map((r) => <li key={r}>{r}</li>)}
@@ -71,6 +77,7 @@ export default function PatientDetail() {
             </section>
             <p className="text-xs text-slate-500">
               Shaded band = this person's usual range (first 14 days at home). Orange dots = unusual days.
+              Dashed orange line = roughly when a sustained change began.
             </p>
           </div>
 
@@ -87,7 +94,7 @@ export default function PatientDetail() {
               {data.reviews.length > 0 && (
                 <ul className="mt-4 space-y-2 border-t border-black/5 pt-3 text-xs text-slate-600">
                   {data.reviews.map((r, i) => (
-                    <li key={i}><b>{ACTION_LABEL[r.action]}</b> · {r.date} {r.time}{r.note ? `: ${r.note}` : ''}</li>
+                    <li key={i}><b>{ACTION_LABEL[r.action]}</b> · {fmtDay(r.date)} {r.time}{r.note ? `: ${r.note}` : ''}</li>
                   ))}
                 </ul>
               )}
@@ -110,11 +117,31 @@ export default function PatientDetail() {
             </section>
 
             <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-black/5">
+              <h2 className="font-semibold">Brain sessions</h2>
+              <p className="text-xs text-slate-500">EEG relaxation index before → during a calming activity</p>
+              <ul className="mt-3 space-y-2 text-sm">
+                {data.brain_sessions.map((b, i) => (
+                  <li key={i} className="flex items-center justify-between gap-2">
+                    <div>
+                      <div>{b.title}</div>
+                      <div className="text-xs text-slate-500">{fmtDay(b.date)}</div>
+                    </div>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${b.helped >= 1
+                      ? 'bg-emerald-50 text-emerald-800' : b.helped > 0 ? 'bg-yellow-50 text-yellow-800' : 'bg-slate-100 text-slate-600'}`}>
+                      {Math.round(b.relax_before)} → {Math.round(b.relax_during)}
+                    </span>
+                  </li>
+                ))}
+                {data.brain_sessions.length === 0 && <li className="text-slate-500">No brain sessions yet.</li>}
+              </ul>
+            </section>
+
+            <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-black/5">
               <h2 className="font-semibold">Check-in notes</h2>
               <ul className="mt-3 space-y-2 text-sm">
                 {data.notes.map((n, i) => (
                   <li key={i} className={n.crisis ? 'rounded-lg bg-red-50 p-2 text-red-900' : ''}>
-                    <span className="text-xs text-slate-500">{n.date}</span>
+                    <span className="text-xs text-slate-500">{fmtDay(n.date, true)}</span>
                     <div>{n.crisis && '⚠️ '}{n.text}</div>
                   </li>
                 ))}
