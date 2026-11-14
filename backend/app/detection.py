@@ -17,6 +17,8 @@ MOOD_ALONE_Z7 = 1.5   # mood alone triggers review at this 7-day average
 WINDOW = 7
 
 STATUS_ORDER = ["urgent", "review", "missing", "watch", "stable"]
+# Which changed sensor to mention first: the ones a clinician reads most easily.
+SENSOR_PRIORITY = ["sleep_hours", "steps", "hrv_rmssd", "resting_hr", "reaction_ms"]
 STATUS_LABELS = {
     "urgent": "Urgent: contact today",
     "review": "Review suggested",
@@ -56,6 +58,7 @@ def analyse_signal(recs: list[dict], key: str) -> dict:
     z7 = sum(last) / len(last) if len(last) >= DAYS_NEEDED else None
     changed = z7 is not None and high_days >= DAYS_NEEDED and z7 >= Z7_NEEDED
     return {
+        "onset": _onset(recs, zs) if changed else None,
         "key": key,
         "label": SIGNALS[key]["label"],
         "unit": SIGNALS[key]["unit"],
@@ -67,6 +70,19 @@ def analyse_signal(recs: list[dict], key: str) -> dict:
         "changed": changed,
         "z": zs,
     }
+
+
+def _onset(recs: list[dict], zs: list[float | None]) -> str | None:
+    """Earliest date from which the rolling 7-day average z stayed >= Z7_NEEDED up to today.
+    Lags the true start by a few days (it needs a week of evidence), which is fine for a
+    'changing since about...' hint."""
+    onset = None
+    for i in range(len(zs) - 1, WINDOW - 2, -1):
+        window = [z for z in zs[i - WINDOW + 1:i + 1] if z is not None]
+        if len(window) < DAYS_NEEDED or sum(window) / len(window) < Z7_NEEDED:
+            break
+        onset = recs[i - WINDOW // 2]["date"]  # centre of the first qualifying window
+    return onset
 
 
 def _reason(a: dict) -> str:
@@ -107,12 +123,16 @@ def assess(recs: list[dict], sharing: dict | None = None) -> dict:
     changed = [k for k, a in analyses.items() if a["changed"]]
     sensor_changed = [k for k in changed if SIGNALS[k]["kind"] == "sensor"]
     self_changed = [k for k in changed if SIGNALS[k]["kind"] == "self"]
-    # Order reasons: strongest sensor change, strongest self-report change, then the rest,
-    # so the top two reasons show both what the body and what the person are saying.
+    # Order reasons so the top two show both what the body and what the person are saying:
+    # the most easily interpreted changed sensor first, then the strongest self-report change,
+    # then everything else by strength.
     by_strength = sorted(changed, key=lambda k: -(analyses[k]["z7"] or 0))
-    lead = [next((k for k in by_strength if SIGNALS[k]["kind"] == kind), None) for kind in ("sensor", "self")]
-    lead = [k for k in lead if k]
+    lead_sensor = next((k for k in SENSOR_PRIORITY if k in sensor_changed), None)
+    lead_self = next((k for k in by_strength if SIGNALS[k]["kind"] == "self"), None)
+    lead = [k for k in (lead_sensor, lead_self) if k]
     reasons_changed = [_reason(analyses[k]) for k in lead + [k for k in by_strength if k not in lead]]
+    onsets = sorted(a["onset"] for k, a in analyses.items() if a["changed"] and a["onset"])
+    changing_since = onsets[len(onsets) // 2] if onsets else None  # median onset across signals
 
     crisis = sharing.get("safety", True) and any(r.get("crisis") for r in recs[-2:])
     data_days = _days_with_any_data(recs)
@@ -144,6 +164,7 @@ def assess(recs: list[dict], sharing: dict | None = None) -> dict:
         "status_label": STATUS_LABELS[status],
         "reasons": reasons,
         "changed_signals": changed,
+        "changing_since": changing_since if status in ("review", "watch") else None,
         "signals_tracked": len(allowed),
         "days_with_data_last7": data_days,
         "last_data_date": last_date,
