@@ -8,7 +8,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from . import store
+from . import checkin_ai, store
 from .detection import analyse_signal, current_state, week_vs_normal
 from .interventions import BRAIN_ACTIVITIES, BY_ID, STATE_LABELS
 from .learner import record_brain_session, record_feedback, suggest
@@ -97,6 +97,61 @@ def post_checkin(pid: str, body: CheckIn):
         "clinic_notified": crisis and p["sharing"].get("safety", True),
         "resources": CRISIS_RESOURCES if crisis else None,
     }
+
+
+CRISIS_REPLY = ("Thank you for telling me. You deserve support right now, and you don't have "
+                "to handle this alone. I'll show you who you can reach straight away.")
+
+
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=2000)
+
+
+class ChatRequest(BaseModel):
+    messages: list[ChatMessage] = Field(min_length=1, max_length=20)
+    wrap_up: bool = False
+
+
+@router.get("/{pid}/checkin-chat")
+def checkin_chat_info(pid: str):
+    p = _get(pid)
+    return {"available": checkin_ai.available(), "opening": checkin_ai.opening(p["name"].split()[0])}
+
+
+@router.post("/{pid}/checkin-chat")
+def checkin_chat(pid: str, body: ChatRequest):
+    """One chat turn. Proposes check-in values; the app asks the patient to confirm
+    them and saves through the normal /checkins endpoint."""
+    p = _get(pid)
+    if body.messages[0].role != "user" or body.messages[-1].role != "user":
+        raise HTTPException(400, "Conversation must start and end with a patient message")
+    t = store.records(pid)[-1]
+
+    def crisis_response():
+        t["crisis"] = True
+        t["notes"] = t.get("notes") or "Crisis wording in chat check-in."
+        return {"reply": CRISIS_REPLY, "done": True, "crisis": True,
+                "clinic_notified": p["sharing"].get("safety", True),
+                "resources": CRISIS_RESOURCES, "proposal": None}
+
+    # Safety first and independent of the AI: check every patient message ourselves.
+    if any(check_crisis(m.content) for m in body.messages if m.role == "user"):
+        return crisis_response()
+
+    try:
+        turn = checkin_ai.chat_turn([m.model_dump() for m in body.messages],
+                                    p["name"].split()[0], wrap_up=body.wrap_up)
+    except checkin_ai.AIUnavailable as e:
+        raise HTTPException(503, {"fallback": "form", "reason": str(e)})
+
+    if turn.crisis_concern:
+        return crisis_response()
+    proposal = None
+    if turn.done:
+        proposal = {k: getattr(turn, k) for k in ("mood", "energy", "anxiety", "sleep_quality", "notes")}
+    return {"reply": turn.reply, "done": turn.done, "crisis": False, "proposal": proposal,
+            "estimates": {k: getattr(turn, k) for k in ("mood", "energy", "anxiety", "sleep_quality")}}
 
 
 class Reaction(BaseModel):
