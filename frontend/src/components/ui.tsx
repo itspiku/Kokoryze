@@ -74,7 +74,3 @@ export function Button({ children, onClick, variant = 'primary', className = '',
     </button>
   )
 }
-
-export const CATEGORY_ICON: Record<string, string> = {
-  relaxation: '🌬️', activation: '🚶', social: '💬', sensory: '🌲',
-}

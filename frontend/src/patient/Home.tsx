@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
 import type { Activity, WeekCompare } from '../api'
-import { Button, CATEGORY_ICON, Card, ErrorBox, Loading } from '../components/ui'
+import { BoltIcon, BrainIcon, CategoryIcon } from '../components/icons'
+import { Button, Card, ErrorBox, Loading } from '../components/ui'
 import { useApi } from '../useApi'
 
 function greeting() {
@@ -40,7 +41,7 @@ export function ActivityCard({ a, pid, label }: { a: Activity; pid: string; labe
     <div className="rounded-2xl bg-sage-50 p-4 ring-1 ring-sage-100">
       {label && <div className="mb-1 text-xs font-medium uppercase tracking-wide text-sage-700">{label}</div>}
       <div className="flex items-start gap-3">
-        <div className="text-2xl">{CATEGORY_ICON[a.category]}</div>
+        <CategoryIcon category={a.category} />
         <div className="flex-1">
           <div className="font-semibold">{a.title}</div>
           <div className="text-xs text-muted">{a.duration_min} min · {a.category}</div>
@@ -118,15 +119,17 @@ export default function Home() {
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        <Link to={`/patient/${pid}/game`} className="rounded-2xl bg-white p-4 ring-1 ring-black/5">
-          <div className="text-2xl">⚡</div>
-          <div className="mt-1 text-sm font-semibold">Quick reaction game</div>
-          <div className="text-xs text-muted">30 seconds</div>
+        <Link to={`/patient/${pid}/game`} className="rounded-2xl bg-white p-4 ring-1 ring-black/5 transition hover:ring-sage-300">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-peach/40 text-[#9a5a26]"><BoltIcon /></span>
+          <div className="mt-2 text-sm font-semibold">Reaction game</div>
+          <div className="text-xs text-muted">
+            {data.today.reaction_ms ? `Played today ✓ ${data.today.reaction_ms} ms` : '30 seconds · not played today'}
+          </div>
         </Link>
-        <Link to={`/patient/${pid}/brain`} className="rounded-2xl bg-white p-4 ring-1 ring-black/5">
-          <div className="text-2xl">🧠</div>
-          <div className="mt-1 text-sm font-semibold">Brain session</div>
-          <div className="text-xs text-muted">Relaxation with EEG</div>
+        <Link to={`/patient/${pid}/brain`} className="rounded-2xl bg-white p-4 ring-1 ring-black/5 transition hover:ring-sage-300">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-lilac/30 text-[#5b54a8]"><BrainIcon /></span>
+          <div className="mt-2 text-sm font-semibold">Brain session</div>
+          <div className="text-xs text-muted">See what relaxes you</div>
         </Link>
       </div>
     </div>
