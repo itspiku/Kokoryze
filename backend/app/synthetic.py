@@ -85,7 +85,7 @@ def _story(pid: str, day: int, rec: dict) -> dict:
         rec["steps"] *= 1 - 0.42 * r
         rec["hrv_rmssd"] *= 1 - 0.2 * r
         rec["resting_hr"] += 4 * r
-        rec["reaction_ms"] += 30 * r
+        rec["reaction_ms"] += 55 * r  # slower reactions: tiredness, low energy
         rec["mood"] -= 3 * r
         rec["energy"] -= 3.5 * r
         rec["anxiety"] += 1.5 * r
