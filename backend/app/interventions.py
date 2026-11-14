@@ -68,6 +68,9 @@ INTERVENTIONS: list[dict] = [
 
 BY_ID = {i["id"]: i for i in INTERVENTIONS}
 
+# Calm, seated activities that can be paired with an EEG brain session.
+BRAIN_ACTIVITIES = ["box_breathing", "body_scan", "forest_sounds"]
+
 STATE_LABELS = {
     "low_energy": "low on energy",
     "anxious": "anxious",
