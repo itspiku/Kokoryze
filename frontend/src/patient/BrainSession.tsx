@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
+import { useParams } from 'react-router-dom'
 import { api } from '../api'
-import type { EegFrame, EegSummary } from '../api'
+import type { BrainSessionResult, EegFrame, EegSummary } from '../api'
+import { CategoryIcon, SparkIcon } from '../components/icons'
 import { Button, Card } from '../components/ui'
+import { useApi } from '../useApi'
 
 const SPEED = 3          // replay speed (3 = 3x real time, ~40 s total)
 const TRACE_POINTS = 200 // ~4 s of signal on screen
@@ -65,6 +68,10 @@ export default function BrainSession() {
   const [summary, setSummary] = useState<EegSummary | null>(null)
   const [count, setCount] = useState({ n: 0, total: 0, ok: 0 })
   const [source, setSource] = useState('')
+  const { pid = 'ben' } = useParams()
+  const { data: activities } = useApi(() => api.brainActivities(), [])
+  const [choice, setChoice] = useState('box_breathing')
+  const [learned, setLearned] = useState<BrainSessionResult | null>(null)
   const ws = useRef<WebSocket | null>(null)
   const fallback = useRef<number | undefined>(undefined)
 
@@ -80,21 +87,37 @@ export default function BrainSession() {
     setSummary(null); setFrame(null); setTrace([]); setCount({ n: 0, total: 0, ok: 0 })
   }
 
+  // Close the loop: the session result becomes evidence for the paired activity.
+  async function finish(s: EegSummary, activityId: string) {
+    setSummary(s)
+    setRunning(false)
+    try {
+      setLearned(await api.brainSession(pid, {
+        intervention_id: activityId, relax_before: s.relax_before, relax_during: s.relax_during,
+        alpha_change_pct: s.alpha_change_pct, quality_pct: s.quality_pct,
+      }))
+    } catch {
+      setLearned(null)
+    }
+  }
+
   // If the WebSocket can't connect, replay the same data from the REST endpoint.
-  async function startFallback() {
+  async function startFallback(activityId: string) {
     const s = await api.eegSession()
     setSource(s.source)
     setCount((c) => ({ ...c, total: s.frames.length }))
     let i = 0
     fallback.current = window.setInterval(() => {
-      if (i >= s.frames.length) { clearInterval(fallback.current); setSummary(s.summary); setRunning(false); return }
+      if (i >= s.frames.length) { clearInterval(fallback.current); finish(s.summary, activityId); return }
       onFrame(s.frames[i++])
     }, 1000 / SPEED)
   }
 
   function start() {
     reset()
+    setLearned(null)
     setRunning(true)
+    const activityId = choice
     let gotData = false
     const sock = new WebSocket(api.eegSocketUrl(SPEED))
     ws.current = sock
@@ -103,9 +126,9 @@ export default function BrainSession() {
       const m = JSON.parse(e.data)
       if (m.type === 'meta') { setSource(m.source); setCount((c) => ({ ...c, total: m.total })) }
       if (m.type === 'frame') onFrame(m)
-      if (m.type === 'summary') { setSummary(m); setRunning(false) }
+      if (m.type === 'summary') finish(m, activityId)
     }
-    sock.onerror = () => { if (!gotData) startFallback() }
+    sock.onerror = () => { if (!gotData) startFallback(activityId) }
   }
 
   function stop() {
@@ -113,18 +136,38 @@ export default function BrainSession() {
   }
 
   const during = frame?.phase === 'during'
+  const chosen = activities?.find((x) => x.id === choice)
 
   return (
     <div className="space-y-4 p-5">
       <header className="pt-2">
-        <h1 className="text-2xl font-semibold">Brain session 🧠</h1>
-        <p className="text-sm text-muted">See how your brain responds to a relaxation exercise.</p>
+        <h1 className="text-2xl font-semibold">Brain session</h1>
+        <p className="text-sm text-muted">See how your brain responds to a calming activity.</p>
       </header>
+
+      {!running && !summary && activities && (
+        <Card>
+          <div className="text-sm font-medium">Pair this session with</div>
+          <div className="mt-2 grid gap-2">
+            {activities.map((x) => (
+              <button key={x.id} onClick={() => setChoice(x.id)} aria-pressed={choice === x.id}
+                className={`flex items-center gap-3 rounded-xl p-2 text-left ring-1 transition ${choice === x.id
+                  ? 'bg-sage-50 ring-sage-500' : 'ring-black/5 hover:bg-sand/60'}`}>
+                <CategoryIcon category={x.category} />
+                <div>
+                  <div className="text-sm font-medium">{x.title}</div>
+                  <div className="text-xs text-muted">{x.duration_min} min</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <Card>
         <div className="flex items-center justify-between text-xs">
           <span className={`rounded-full px-2 py-0.5 font-medium ${!frame ? 'bg-sand text-muted' : during ? 'bg-sage-100 text-sage-700' : 'bg-peach/40 text-ink'}`}>
-            {!frame ? 'Ready' : during ? 'During: breathing exercise, eyes closed' : 'Before: resting, eyes open'}
+            {!frame ? 'Ready' : during ? `During: ${chosen?.title.toLowerCase() ?? 'activity'}, eyes closed` : 'Before: resting, eyes open'}
           </span>
           {count.total > 0 && (
             <span className="text-muted">signal quality {count.n ? Math.round((count.ok / count.n) * 100) : 100}%</span>
@@ -155,10 +198,20 @@ export default function BrainSession() {
             the exercise. Alpha activity (linked to calm, wakeful rest) was {summary.alpha_change_pct != null && summary.alpha_change_pct >= 0
               ? <b>{Math.round(summary.alpha_change_pct)}% higher</b> : 'not higher'}.
           </p>
-          <p className="text-xs text-muted">
-            In the full loop, this becomes an extra "did it help?" signal, so Kokoryze learns which activities your brain responds to.
-          </p>
-          <Button variant="soft" className="w-full" onClick={start}>Run again</Button>
+          {learned ? (
+            <div className="rounded-xl bg-sage-50 p-3 text-sm">
+              <div className="flex items-center gap-1.5 font-medium text-sage-700"><SparkIcon width={16} height={16} /> Kokoryze learned</div>
+              <p className="mt-1">{learned.message}</p>
+              <p className="mt-1 text-xs text-muted">
+                {learned.evidence.activity}: your brain relaxed in {learned.evidence.brain_relaxed} of {learned.evidence.brain_sessions}{' '}
+                {learned.evidence.brain_sessions === 1 ? 'session' : 'sessions'}. {learned.evidence.used_when} It counts
+                for half as much as your own "did this help?" answers.
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs text-muted">Saving what we learned…</p>
+          )}
+          <Button variant="soft" className="w-full" onClick={() => { reset(); setLearned(null) }}>New session</Button>
         </Card>
       ) : running ? (
         <Button variant="soft" className="w-full" onClick={stop}>Stop</Button>
