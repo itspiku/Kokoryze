@@ -3,12 +3,20 @@ import { todQuery } from './demoTime'
 
 const BASE = '/api'
 
+export class ApiError extends Error {
+  status: number
+  constructor(status: number, body: string) {
+    super(`${status} ${body}`)
+    this.status = status
+  }
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(BASE + path, {
     headers: { 'Content-Type': 'application/json' },
     ...init,
   })
-  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
+  if (!res.ok) throw new ApiError(res.status, await res.text())
   return res.json() as Promise<T>
 }
 const post = <T>(path: string, body: unknown) => req<T>(path, { method: 'POST', body: JSON.stringify(body) })
@@ -60,8 +68,28 @@ export interface Today extends SuggestionResponse {
 export interface Point { date: string; value: number | null; unusual?: boolean }
 export interface Series {
   key: string; label: string; unit: string; changed: boolean
+  onset?: string | null
   baseline: { median: number; low: number; high: number } | null
   points: Point[]
+}
+
+export interface CheckInValues { mood: number; energy: number; anxiety: number; sleep_quality?: number; notes?: string }
+
+export interface ChatMessage { role: 'user' | 'assistant'; content: string }
+export interface ChatProposal {
+  mood: number | null; energy: number | null; anxiety: number | null
+  sleep_quality: number | null; notes: string | null
+}
+export interface ChatReply {
+  reply: string; done: boolean; crisis: boolean
+  proposal: ChatProposal | null
+  resources?: CrisisResources; clinic_notified?: boolean
+}
+
+export interface BrainActivity { id: string; title: string; category: Activity['category']; duration_min: number; instructions: string }
+export interface BrainSessionResult extends SuggestionResponse {
+  message: string
+  evidence: { activity: string; brain_sessions: number; brain_relaxed: number; used_when: string }
 }
 
 export interface CrisisResources {
@@ -78,6 +106,8 @@ export interface ClinicRow {
   id: string; name: string; age: number; weeks_since_tms: number
   status: Status; status_label: string; reasons: string[]
   changed_count: number; signals_tracked: number
+  changing_since: string | null
+  mood_trend: (number | null)[] | null; mood_usual: number | null
   last_data_date: string | null; last_review: Review | null; reviewed_today: boolean
 }
 
@@ -87,6 +117,7 @@ export interface ClinicDetail extends ClinicRow {
   series: Series[]
   notes: { date: string; text: string; crisis: boolean }[]
   interventions: { id: string; title: string; tried: number; helped: number }[]
+  brain_sessions: { date: string; title: string; relax_before: number; relax_during: number; helped: number }[]
   reviews: Review[]
   hidden_by_patient: string[]
 }
@@ -107,8 +138,13 @@ export const api = {
   patients: () => req<PatientRef[]>('/patients'),
   today: (pid: string) => req<Today>(`/patients/${pid}/today${todQuery()}`),
   trends: (pid: string, days = 30) => req<{ signals: Series[] }>(`/patients/${pid}/trends?days=${days}`),
-  checkIn: (pid: string, body: { mood: number; energy: number; anxiety: number; sleep_quality?: number; notes?: string }) =>
-    post<CheckInResult>(`/patients/${pid}/checkins`, body),
+  checkIn: (pid: string, body: CheckInValues) => post<CheckInResult>(`/patients/${pid}/checkins`, body),
+  chatInfo: (pid: string) => req<{ available: boolean; opening: string }>(`/patients/${pid}/checkin-chat`),
+  chat: (pid: string, messages: ChatMessage[], wrap_up = false) =>
+    post<ChatReply>(`/patients/${pid}/checkin-chat`, { messages, wrap_up }),
+  brainActivities: () => req<BrainActivity[]>('/patients/brain-activities'),
+  brainSession: (pid: string, body: { intervention_id: string; relax_before: number; relax_during: number; alpha_change_pct?: number | null; quality_pct?: number }) =>
+    post<BrainSessionResult>(`/patients/${pid}/brain-session${todQuery()}`, body),
   reaction: (pid: string, median_ms: number, trials: number[]) =>
     post<{ ok: boolean; usual: number | null; today: number }>(`/patients/${pid}/reaction`, { median_ms, trials }),
   suggestion: (pid: string, exclude: string[] = []) =>
