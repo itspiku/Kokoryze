@@ -39,25 +39,35 @@ Open http://localhost:5173.
 **Before you demo offline:** open the Brain session once while online. The EEG recording (~2.4 MB) is
 downloaded from PhysioNet into `backend/data/eeg` and cached from then on.
 
+**Optional: AI chat check-in.** Set an Anthropic API key before starting the backend and the check-in
+screen gets a *Chat* tab. Without a key, the app uses the quick form and everything else works the same.
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...        # PowerShell: $env:ANTHROPIC_API_KEY = "sk-ant-..."
+```
+Optional: `KOKORYZE_AI_MODEL` (default `claude-opus-5-5`), `KOKORYZE_AI=off` to disable.
+
 **Tests**
 ```bash
 cd backend
 .venv/Scripts/python -m pytest -q
 ```
+The AI tests use a simulated Claude client, so they run offline and cost nothing.
 
 ## Demo personas
 
 | Persona | Story | Dashboard status | What it shows |
 |---|---|---|---|
 | Anna, 34 | Stable after TMS | 🟢 Stable | No false alarms on normal ups and downs |
-| Ben, 52 | Sleep, steps, HRV and mood slowly declining for 2 weeks | 🟠 Review suggested | Catches gradual, multi-signal change |
+| Ben, 52 | Sleep, steps, HRV, reaction time and mood slowly declining for 2 weeks | 🟠 Review suggested | Catches gradual, multi-signal change |
 | Chloe, 27 | No data for 6 days | ⚪ Missing data | Silence is also a signal |
 | David, 41 | Stressful work week, then recovered | 🟢 Stable (recovery noted) | Short blips don't trigger alerts |
 | Eva, 63 | Mood alone dropping fast, sensors normal | 🟠 Review suggested | Self-report matters |
 | Farid, 45 | Crisis wording in today's check-in | 🔴 Urgent | Safety protocol |
 
-Demo controls in the patient app's side panel: switch persona, and pin the **time of day** so suggestions
-are predictable on stage. **Reset demo** is on the landing page (or `POST /demo/reset`).
+Demo controls in the patient app's side panel (a compact bar on phones): switch persona, and pin the
+**time of day** so suggestions are predictable on stage. **Reset demo** is on the landing page (or
+`POST /demo/reset`). The clinician list refreshes every 5 seconds, so with the patient app and dashboard
+side by side, a crisis check-in appears on the dashboard live.
 
 ## How it works
 
@@ -66,7 +76,8 @@ over the first 14 days at home. Each day gets a robust z-score, flipped so that 
 "more concerning".
 
 **Sustained change.** A signal counts as changed when z ≥ 1.5 on at least 4 of the last 7 days and the 7-day
-average z ≥ 1.0. One bad night is never enough.
+average z ≥ 1.0. One bad night is never enough. The dashboard also estimates when a change began (the
+earliest day from which the rolling 7-day average stayed elevated) and notes short changes that recovered.
 
 **Status rules** (first match wins):
 1. Crisis wording in a check-in in the last 48 h → Urgent
@@ -81,6 +92,11 @@ anxious, short on sleep, low, steady). The main suggestion is the activity belie
 One alternative is the best Thompson sample among the rest (explore). Every suggestion says why, for example
 "helped you 3 of the last 3 times you felt low on energy."
 
+**Closing the loop with EEG.** A brain session is paired with a calm activity (box breathing, body scan or
+forest sounds). The relaxation change during the activity becomes learner evidence for that activity:
++15 points or more counts as "helped", +5 as "helped a bit". It counts at **half the weight** of the
+person's own answer, because a brain signal is a hint about what helps, not the person's verdict.
+
 **EEG** (`backend/app/eeg.py`). PhysioNet EEG Motor Movement/Imagery Dataset, resting runs (eyes open, then
 eyes closed). Occipital/parietal channels → 1–40 Hz band-pass → 2 s windows with 1 s steps → adaptive
 artifact rejection → Welch PSD → relative theta/alpha/beta → relaxation index = alpha / (alpha + beta),
@@ -88,8 +104,15 @@ smoothed and scaled 0–100. Replayed over a WebSocket as if live. Eyes-closed r
 alpha, which we present as a "more relaxed" state. With a consumer headband (Muse, OpenBCI) the same
 pipeline would run on live data.
 
+**AI chat check-in** (`backend/app/checkin_ai.py`). One Claude call per chat turn, using structured output
+(a JSON schema) that returns the friendly reply plus best-guess mood, energy, anxiety and sleep, and a crisis
+flag. The AI only *proposes* values: the patient sees "here's what I understood", adjusts if needed and
+confirms before anything is saved. Status rules never use the AI. Any problem (no key, network, refusal,
+malformed reply) falls back to the quick form.
+
 **Safety** (`backend/app/safety.py`). Conservative English and Finnish phrase matching, independent of any
-AI model. On a match the patient immediately sees help resources, and the clinic is flagged if the patient
+AI model. It runs on every chat message *before* the AI sees it. On a match the patient immediately sees
+help resources, and the clinic is flagged if the patient
 allowed safety alerts. ⚠️ Double-check the crisis phone numbers before any public demo.
 
 **Privacy.** Per-signal sharing toggles are enforced server-side in the clinician endpoints. Daily
@@ -104,23 +127,22 @@ backend/app/
   api_clinic.py      clinician endpoints (respect sharing)
   api_eeg.py         EEG session + WebSocket replay
   detection.py       baselines, change detection, status + reasons
-  learner.py         Thompson-sampling activity recommender
+  learner.py         Thompson-sampling activity recommender (self-report + EEG evidence)
+  checkin_ai.py      Claude-powered chat check-in with form fallback
   safety.py          crisis wording check + resources
   synthetic.py       6 deterministic demo personas
   signals.py         signal definitions
   interventions.py   activity library
   eeg.py             EEG pipeline
   store.py           in-memory demo store (resettable)
-backend/tests/       persona status tests, learner and API tests
+backend/tests/       persona status, learner, API, brain-session and chat check-in tests
 frontend/src/
   patient/           Home, CheckIn, Activity, Trends, BrainSession, ReactionGame, Privacy, Crisis
   clinic/            PatientList, PatientDetail
-  components/        BaselineChart, shared UI
+  components/        BaselineChart, Sparkline, icons, shared UI
 ```
 
 ## Not built yet (see PLAN.md)
 
-- AI conversational check-in (P1). The form works today.
-- Feeding the EEG relaxation change back into the learner.
-- Live headband input, real wearable integrations, deployment.
+- Live headband input (the EEG is a replayed research recording), real wearable integrations, deployment.
 - Dementia, anxiety and other modules (roadmap).
