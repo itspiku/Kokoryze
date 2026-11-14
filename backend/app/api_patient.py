@@ -70,7 +70,8 @@ def trends(pid: str, days: int = 30):
             "changed": a["changed"],
             "baseline": None if bl["median"] is None else {
                 "median": bl["median"], "low": bl["median"] - bl["spread"], "high": bl["median"] + bl["spread"]},
-            "points": [{"date": r["date"], "value": r.get(key)} for r in recs[-days:]],
+            "points": [{"date": r["date"], "value": r.get(key), "unusual": (a["z"][i] or 0) >= 1.5}
+                       for i, r in list(enumerate(recs))[-days:]],
         })
     return {"signals": out}
 
